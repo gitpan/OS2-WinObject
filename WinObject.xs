@@ -19,6 +19,9 @@ typedef HBITMAP		HBITMAP_or_error;
 typedef HPOINTER	HPOINTER_or_error;
 typedef ULONG		ULONG_error;
 
+/* Avoid mixing prototypes for newSViv and newSVuv if the test is wrong */
+#define newSViv_uv	newSViv
+
 static int
 not_here(char *s)
 {
@@ -323,6 +326,15 @@ constant_P(char *name, int arg)
 	if (!strnEQ(name + 1,"MERR_", 5))
 	    break;
 	return constant_PMERR_W(name, arg);
+    case 'P':
+	if (strEQ(name+1,"MERR_PARAMETER_OUT_OF_RANGE"))
+#ifdef PMERR_PARAMETER_OUT_OF_RANGE
+	    return PMERR_PARAMETER_OUT_OF_RANGE;
+#else
+	    goto not_there;
+#endif
+	    
+	break;
     }
     errno = EINVAL;
     return 0;
@@ -624,9 +636,60 @@ not_there:
     return 0;
 }
 
+POBJCLASS
+EnumObjectClasses(void)
+{
+    POBJCLASS ret = 0;
+    ULONG c;
+
+    if (CheckWinError(WinEnumObjectClasses (ret, &c)))
+	return 0;
+    New(1154, ret, c, OBJCLASS);
+    if (CheckWinError(WinEnumObjectClasses (ret, &c))) {
+	Safefree(ret);
+	return 0;
+    }
+    return ret;
+}
+
+SV *
+ActiveDesktopPathname(void)
+{
+	char	pszPathName[CCHMAXPATH + 1];
+
+	if (CheckWinError(WinQueryActiveDesktopPathname(pszPathName,sizeof(pszPathName))))
+	    return NULL;
+	return newSVpv(pszPathName, 0);
+}
+
+SV *
+ObjectPath(HOBJECT hobject)
+{
+	char	pszPathName[CCHMAXPATH + 1];
+
+	if (CheckWinError(WinQueryObjectPath(hobject, pszPathName,sizeof(pszPathName))))
+	    return Nullsv;
+	return newSVpv(pszPathName, 0);
+}
+
+typedef struct {int error; SWP swp;} SWP_or_error;
+
+SWP_or_error
+WindowPos(HWND hwnd)
+{
+	SWP_or_error	swpe;
+
+	swpe.error = 0;
+	if (CheckWinError(WinQueryWindowPos(hwnd, &(swpe.swp))))
+	    swpe.error = 1;
+	return swpe;
+}
+
+#define make_hwnd(h)	(h)
 
 MODULE = OS2::WinObject		PACKAGE = OS2::WinObject		PREFIX = Win
 
+PROTOTYPES: enable
 
 double
 constant(name,arg)
@@ -714,7 +777,7 @@ WinQueryObjectPath(hobject, pszPathName, ulSize)
 	ULONG	ulSize
 
 HWND_or_error
-WinQueryObjectWindow(hwndDesktop)
+WinQueryObjectWindow(hwndDesktop = HWND_DESKTOP)
 	HWND	hwndDesktop
 
 BOOL
@@ -799,3 +862,72 @@ WinStoreWindowPos(pszAppName, pszKeyName, hwnd)
 	PCSZ	pszAppName
 	PCSZ	pszKeyName
 	HWND	hwnd
+
+LONG
+WinQuerySysValue(iSysValue, hwndDesktop = HWND_DESKTOP)
+	LONG iSysValue
+	HWND hwndDesktop
+    C_ARGS: hwndDesktop, iSysValue
+
+BOOL
+WinSetSysValue(iSysValue, lValue, hwndDesktop = HWND_DESKTOP)
+	LONG iSysValue
+	LONG lValue
+	HWND hwndDesktop
+    C_ARGS: hwndDesktop, iSysValue, lValue
+
+SV *
+ObjectClasses()
+    PPCODE:
+    {
+	POBJCLASS list = EnumObjectClasses();
+	POBJCLASS l = list, i = list;
+	int c;
+
+	while (l) {
+	    l = l[0].pNext;
+	    c++;
+	}
+	EXTEND(SP, 2*c);
+	l = list;
+	while (l) {
+	    PUSHs(sv_2mortal(newSVpv(l[0].pszClassName, 0)));
+	    PUSHs(sv_2mortal(newSVpv(l[0].pszModName,   0)));
+	    l = l[0].pNext;
+	}
+	Safefree(list);
+    }
+
+SV *
+ActiveDesktopPathname()
+
+SV *
+ObjectPath(hobject)
+	HOBJECT	hobject
+
+MODULE = OS2::WinObject		PACKAGE = OS2::WinObject	PREFIX = make
+
+SV *
+WindowPos(hwnd)
+	HWND	hwnd;
+    PPCODE:
+    {
+	SWP_or_error swpe = WindowPos(hwnd);
+
+	if (!swpe.error) {
+	    EXTEND(SP, 9);
+	    PUSHs(sv_2mortal(newSViv(swpe.swp.x)));
+	    PUSHs(sv_2mortal(newSViv(swpe.swp.y)));
+	    PUSHs(sv_2mortal(newSViv(swpe.swp.cx)));
+	    PUSHs(sv_2mortal(newSViv(swpe.swp.cy)));
+	    PUSHs(sv_2mortal(newSVuv(swpe.swp.fl)));
+	    PUSHs(sv_2mortal(newSVuv(swpe.swp.hwndInsertBehind)));
+	    PUSHs(sv_2mortal(newSVuv(swpe.swp.hwnd)));
+	    PUSHs(sv_2mortal(newSVuv(swpe.swp.ulReserved1)));
+	    PUSHs(sv_2mortal(newSVuv(swpe.swp.ulReserved2)));
+	}
+    }
+
+HWND
+make_hwnd(h)
+	ULONG h

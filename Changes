@@ -6,3 +6,9 @@ Revision history for Perl extension OS2::WinObject.
 
 	Minimal manual edits, mostly to make error codes into $! and $^E.
 
+0.02  Mininal documentation added.
+      %h = ObjectClasses(); $path = ActiveDesktopPathname;
+      $path = ObjectPath($hobject); $obj = _hwnd($int);
+      ($x,$y,$w,$h,$flags,$hwndBehindOf,$hwndMy,$r1,$r2) = WindowPos($hwnd);
+      implemented.
+      Prototypes enabled.
